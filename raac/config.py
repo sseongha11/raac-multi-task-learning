@@ -1,32 +1,26 @@
 import torch
-import os
 import segmentation_models_pytorch.utils as su
 
-BASE_PATH = '/home/sh/Documents/deep-learning/raac/crack-detection-deeplabv3p-code/'
-OUTPUT_PATH = os.path.join(BASE_PATH, 'output')
-MODEL_PATH = os.path.join(OUTPUT_PATH, 'best_model.pth')
-DATA_DIR = os.path.join(BASE_PATH, 'dataset')
+X_TRAIN_DIR = 'dataset/train'
+Y_TRAIN_DIR = 'dataset/train_labels'
 
-x_train_dir = os.path.join(DATA_DIR, 'train')
-y_train_dir = os.path.join(DATA_DIR, 'train_labels')
+X_VALID_DIR = 'dataset/val'
+Y_VALID_DIR = 'dataset/val_labels'
 
-x_valid_dir = os.path.join(DATA_DIR, 'val')
-y_valid_dir = os.path.join(DATA_DIR, 'val_labels')
-
-x_test_dir = os.path.join(DATA_DIR, 'test')
-y_test_dir = os.path.join(DATA_DIR, 'test_labels')
+X_TEST_DIR = 'dataset/test'
+Y_TEST_DIR = 'dataset/test_labels'
 
 # Get class names
-class_names = ['background', 'crack']
+CLASS_NAME = ['background', 'crack']
 
 # Get class RGB values
-class_rgb_values = [[0, 0, 0], [255, 255, 255]]  # select_class_rgb_values
+CLASS_RGB_VALUES = [[0, 0, 0], [255, 255, 255]]  # select_class_rgb_values
 
-class_idx = [0, 1]  # select_class_indices
+CLASS_IDX = [0, 1]  # select_class_indices
 
 ENCODER = 'resnet101'
 ENCODER_WEIGHTS = 'imagenet'
-CLASSES = class_names
+CLASSES = CLASS_NAME
 ACTIVATION = 'sigmoid'  # could be None for logits or 'softmax2d' for multiclass segmentation
 
 # Set flag to train the model or not. If set to 'False', only prediction is performed (using an older model checkpoint)

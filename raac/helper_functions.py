@@ -1,8 +1,10 @@
-# Description: Helper functions for data visualization, one-hot encoding, reverse one-hot encoding, colour coding, and data augmentation
+# Description: Helper functions for data visualization, one-hot encoding, reverse one-hot encoding, colour coding,
+# and data augmentation
 import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import albumentations as album
+
 
 # helper function for data visualization
 def visualize(**images):
@@ -10,15 +12,16 @@ def visualize(**images):
     Plot images in one row
     """
     n_images = len(images)
-    plt.figure(figsize=(20,8))
+    plt.figure(figsize=(20, 8))
     for idx, (name, image) in enumerate(images.items()):
         plt.subplot(1, n_images, idx + 1)
         plt.xticks([]);
         plt.yticks([])
         # get title from the parameter names
-        plt.title(name.replace('_',' ').title(), fontsize=20)
+        plt.title(name.replace('_', ' ').title(), fontsize=20)
         plt.imshow(image)
     plt.show()
+
 
 # Perform one hot encoding on label
 def one_hot_encode(label, label_values):
@@ -30,17 +33,18 @@ def one_hot_encode(label, label_values):
         label_values
 
     # Returns
-        A 2D array with the same width and hieght as the input, but
+        A 2D array with the same width and height as the input, but
         with a depth size of num_classes
     """
     semantic_map = []
     for colour in label_values:
         equality = np.equal(label, colour)
-        class_map = np.all(equality, axis = -1)
+        class_map = np.all(equality, axis=-1)
         semantic_map.append(class_map)
     semantic_map = np.stack(semantic_map, axis=-1)
 
     return semantic_map
+
 
 # Perform reverse one-hot-encoding on labels / preds
 def reverse_one_hot(image):
@@ -52,12 +56,13 @@ def reverse_one_hot(image):
         image: The one-hot format image
 
     # Returns
-        A 2D array with the same width and hieght as the input, but
+        A 2D array with the same width and height as the input, but
         with a depth size of 1, where each pixel value is the classified
         class key.
     """
-    x = np.argmax(image, axis = -1)
+    x = np.argmax(image, axis=-1)
     return x
+
 
 # Perform colour coding on the reverse-one-hot outputs
 def colour_code_segmentation(image, label_values):
@@ -75,6 +80,7 @@ def colour_code_segmentation(image, label_values):
 
     return x
 
+
 # Perform data augmentation
 def get_training_augmentation():
     train_transform = [
@@ -90,6 +96,7 @@ def get_training_augmentation():
     ]
     return album.Compose(train_transform)
 
+
 # Perform validation data augmentation
 def get_validation_augmentation():
     # Add sufficient padding to ensure image is divisible by 32
@@ -101,6 +108,7 @@ def get_validation_augmentation():
 
 def to_tensor(x, **kwargs):
     return x.transpose(2, 0, 1).astype('float32')
+
 
 # Perform preprocessing
 def get_preprocessing(preprocessing_fn=None):
@@ -118,15 +126,15 @@ def get_preprocessing(preprocessing_fn=None):
 
     return album.Compose(_transform)
 
-# Center crop padded image / mask to original image dims
-def crop_image(image, target_image_dims=[448,448,3]):
 
+# Center crop padded image / mask to original image dims
+def crop_image(image, target_image_dims=[448, 448, 3]):
     target_size = target_image_dims[0]
     image_size = len(image)
     padding = (image_size - target_size) // 2
 
     return image[
-        padding:image_size - padding,
-        padding:image_size - padding,
-        :,
-    ]
+           padding:image_size - padding,
+           padding:image_size - padding,
+           :,
+           ]

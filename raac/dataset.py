@@ -4,18 +4,18 @@ import torch
 
 from raac.helper_functions import one_hot_encode
 
-class CracksDataset(torch.utils.data.Dataset):
 
+class CracksDataset(torch.utils.data.Dataset):
     """Cracks Dataset. Read images, apply augmentation and preprocessing transformations.
 
     Args:
         images_dir (str): path to images folder
         masks_dir (str): path to segmentation masks folder
         class_rgb_values (list): RGB values of select classes to extract from segmentation mask
-        augmentation (albumentations.Compose): data transfromation pipeline
+        augmentation (albumentations.Compose): data transformation pipeline
             (e.g. flip, scale, etc.)
         preprocessing (albumentations.Compose): data preprocessing
-            (e.g. noralization, shape manipulation, etc.)
+            (e.g. normalization, shape manipulation, etc.)
 
     """
 
