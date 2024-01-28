@@ -1,151 +1,125 @@
-# USAGE
-# python train.py --model unet --output output/unet/
-# python train.py --model unet++ --output output/unetpp/
-# python train.py --model deeplabv3+ --output output/deeplabv3p/
-# python train.py --model fpn --output output/fpn/
-
-import os
-from matplotlib import pyplot as plt
-import pandas as pd
-import torch
 import argparse
-import segmentation_models_pytorch as smp
-import segmentation_models_pytorch.utils as su
-
+import logging
+import os
+import torch
+import torch.nn as nn
+import torch.optim as optim
 from torch.utils.data import DataLoader
-from tqdm import tqdm
-from raac import config
-from raac.dataset import CracksDataset
-from raac.helper_functions import get_validation_augmentation, get_preprocessing, get_training_augmentation
+from torchvision import transforms
+import matplotlib.pyplot as plt
+from raac.dataset import CrackDataset
+from raac.model import CrackDetectionModel
+from torch.optim.lr_scheduler import StepLR
 
 
-# construct the argument parser and parse the arguments
-ap = argparse.ArgumentParser()
-ap.add_argument("-m", "--model", type=str, default="unet",
-                choices=["unet", "unet++", "deeplabv3+", "fpn"],
-                help="name of segmentation model to train")
-ap.add_argument("-o", "--output", required=True, help="path to the output directory")
-args = vars(ap.parse_args())
+def train_one_epoch(model, dataloader, optimizer, criterion, device):
+    model.train()
+    running_loss = 0.0
+    for images, masks, labels in dataloader:
+        images, masks, labels = images.to(device), masks.to(device), labels.to(device)
+        optimizer.zero_grad()
+        seg_output, cls_output = model(images)
+        masks = masks.squeeze(1)
+        seg_output = seg_output.squeeze(1)
+        loss = criterion(cls_output, labels) + criterion(seg_output, masks)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+    return running_loss / len(dataloader)
 
-if not os.path.exists(args["output"]):
-    os.makedirs(args["output"])
 
-MODELS = {
-    "unet": smp.Unet,
-    "unet++": smp.UnetPlusPlus,
-    "deeplabv3+": smp.DeepLabV3Plus,
-    "fpn": smp.FPN,
-}
+def validate_one_epoch(model, dataloader, criterion, device):
+    model.eval()
+    running_loss = 0.0
+    with torch.no_grad():
+        for images, masks, labels in dataloader:
+            images, masks, labels = images.to(device), masks.to(device), labels.to(device)
+            seg_output, cls_output = model(images)
+            masks = masks.squeeze(1)
+            seg_output = seg_output.squeeze(1)
+            loss = criterion(cls_output, labels) + criterion(seg_output, masks)
+            running_loss += loss.item()
+    return running_loss / len(dataloader)
 
-# create segmentation model with pretrained encoder
-model = MODELS[args["model"]](
-    encoder_name=config.ENCODER,
-    encoder_weights=config.ENCODER_WEIGHTS,
-    classes=len(config.CLASSES),
-    activation=config.ACTIVATION,
-)
 
-preprocessing_fn = smp.encoders.get_preprocessing_fn(config.ENCODER, config.ENCODER_WEIGHTS)
+def setup_logging():
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s',
+                        datefmt='%Y-%m-%d %H:%M:%S')
 
-# Get train and val dataset instances
-train_dataset = CracksDataset(
-    config.X_TRAIN_DIR, config.Y_TRAIN_DIR,
-    augmentation=get_training_augmentation(),
-    preprocessing=get_preprocessing(preprocessing_fn),
-    class_rgb_values=config.CLASS_RGB_VALUES,
-)
 
-valid_dataset = CracksDataset(
-    config.X_VALID_DIR, config.Y_VALID_DIR,
-    augmentation=get_validation_augmentation(),
-    preprocessing=get_preprocessing(preprocessing_fn),
-    class_rgb_values=config.CLASS_RGB_VALUES,
-)
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Train Crack Detection Model')
+    parser.add_argument('--epochs', default=25, type=int, help='number of epochs')
+    parser.add_argument('--lr', default=0.001, type=float, help='learning rate')
+    parser.add_argument('--batch_size', default=4, type=int, help='batch size')
+    parser.add_argument('--num_classes', default=3, type=int, help='number of classes')
+    parser.add_argument('--image_dir', default='dataset/images', type=str, help='directory of images')
+    parser.add_argument('--mask_dir', default='dataset/masks', type=str, help='directory of masks')
+    parser.add_argument('--labels_file', default='dataset/labels.csv', type=str, help='labels file path')
+    parser.add_argument('--save_path', default='output/best_crack_detection_model.pth', type=str,
+                        help='path to save best model')
+    return parser.parse_args()
 
-# Get train and val data loaders
-train_loader = DataLoader(train_dataset, batch_size=16, shuffle=True, num_workers=5)
-valid_loader = DataLoader(valid_dataset, batch_size=1, shuffle=False, num_workers=2)
 
-# define loss function
-loss = config.LOSS
+def main():
+    args = parse_arguments()
+    setup_logging()
 
-# define metrics
-metrics = config.METRIC
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logging.info(f"Using device: {device}")
 
-# define optimizer
-optimizer = torch.optim.Adam([
-    dict(params=model.parameters(), lr=config.INIT_LR),
-])
+    model = CrackDetectionModel().to(device)
+    criterion = nn.BCEWithLogitsLoss()
+    optimizer = optim.Adam(model.parameters(), lr=args.lr)
+    scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
 
-# define learning rate scheduler (not used in this NB)
-lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-    optimizer, T_0=1, T_mult=2, eta_min=5e-5,
-)
+    transform = transforms.Compose([
+        transforms.Resize((448, 448)),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5], std=[0.5]),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomVerticalFlip(),
+    ])
 
-# # load best saved model checkpoint from previous commit (if present)
-# if os.path.exists(args["output"]):
-#     model = torch.load(args["output"], map_location=config.DEVICE)
+    train_dataset = CrackDataset(args.image_dir, args.mask_dir, args.labels_file, args.num_classes, transform=transform)
+    train_loader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True)
 
-train_epoch = su.train.TrainEpoch(
-    model,
-    loss=loss,
-    metrics=metrics,
-    optimizer=optimizer,
-    device=config.DEVICE,
-    verbose=True,
-)
+    # Implement validation dataset loading here
+    # val_dataset = ...
+    # val_loader = DataLoader(val_dataset, ...)
 
-valid_epoch = su.train.ValidEpoch(
-    model,
-    loss=loss,
-    metrics=metrics,
-    device=config.DEVICE,
-    verbose=True,
-)
+    best_loss = float('inf')
+    train_losses, val_losses = [], []
 
-best_iou_score = 0.0
-train_logs_list, valid_logs_list = [], []
+    for epoch in range(args.epochs):
+        train_loss = train_one_epoch(model, train_loader, optimizer, criterion, device)
+        train_losses.append(train_loss)
+        logging.info(f"Epoch {epoch + 1}/{args.epochs}, Train Loss: {train_loss:.4f}")
 
-for e in tqdm(range(0, config.EPOCHS)):
-    # Perform training & validation
-    print('\nEpoch: {}'.format(e))
-    train_logs = train_epoch.run(train_loader)
-    valid_logs = valid_epoch.run(valid_loader)
-    train_logs_list.append(train_logs)
-    valid_logs_list.append(valid_logs)
-    # file_name = f'model_epoch_{i}.pth'
-    # torch.save(model, os.path.join(args["output"], file_name))
+        # Validate after each epoch
+        # val_loss = validate_one_epoch(model, val_loader, criterion, device)
+        # val_losses.append(val_loss)
+        # logging.info(f"Epoch {epoch + 1}/{args.epochs}, Validation Loss: {val_loss:.4f}")
 
-    file_name_best = f'best_model.pth'
-    # Save model if a better val IoU score is obtained
-    if best_iou_score < valid_logs['iou_score']:
-        best_iou_score = valid_logs['iou_score']
-        torch.save(model, os.path.join(args["output"], file_name_best))
-        print('Model saved!')
+        scheduler.step()
 
-print("Evaluation on Test Data: ")
-train_logs_df = pd.DataFrame(train_logs_list)
-valid_logs_df = pd.DataFrame(valid_logs_list)
-train_logs_df.T.to_csv(os.path.join(args["output"], 'train_logs.csv'))
+        if train_loss < best_loss:
+            best_loss = train_loss
+            torch.save(model.state_dict(), args.save_path)
+            logging.info(f"Model saved at {args.save_path}")
 
-plt.figure(figsize=(20, 8))
-plt.plot(train_logs_df.index.tolist(), train_logs_df.iou_score.tolist(), lw=3, label='Train')
-plt.plot(valid_logs_df.index.tolist(), valid_logs_df.iou_score.tolist(), lw=3, label='Valid')
-plt.xlabel('Epochs', fontsize=20)
-plt.ylabel('IoU Score', fontsize=20)
-plt.title('IoU Score Plot', fontsize=20)
-plt.legend(loc='best', fontsize=16)
-plt.grid()
-plt.savefig(os.path.join(args["output"], 'iou_score_plot.png'))
-plt.show()
+    plt.figure(figsize=(12, 4))
+    plt.plot(train_losses, label='Training Loss')
+    # plt.plot(val_losses, label='Validation Loss')
+    plt.title('Training and Validation Loss')
+    plt.xlabel('Epoch')
+    plt.ylabel('Loss')
+    plt.legend()
+    plt.savefig('output/training_loss.png')
+    plt.show()
 
-plt.figure(figsize=(20, 8))
-plt.plot(train_logs_df.index.tolist(), train_logs_df.dice_loss.tolist(), lw=3, label='Train')
-plt.plot(valid_logs_df.index.tolist(), valid_logs_df.dice_loss.tolist(), lw=3, label='Valid')
-plt.xlabel('Epochs', fontsize=20)
-plt.ylabel('Dice Loss', fontsize=20)
-plt.title('Dice Loss Plot', fontsize=20)
-plt.legend(loc='best', fontsize=16)
-plt.grid()
-plt.savefig(os.path.join(args["output"], 'dice_loss_plot.png'))
-plt.show()
+    logging.info('Finished Training')
+
+
+if __name__ == "__main__":
+    main()
