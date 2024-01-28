@@ -1,7 +1,7 @@
 # Multi-Task Learning Model for RAAC Crack Segmentation and Classification
 
 ## Overview
-This project, developed by Seongha at Loughborough University, presents a sophisticated Crack Detection Model. The model is based on a modified U-Net architecture, enhanced with dropout and batch normalization. It's designed for efficient and accurate detection and classification of cracks in surfaces or materials.
+This project, developed by [Seongha Hwang](https://www.linkedin.com/in/seongha-hwang-a478a068/) at Loughborough University, presents a sophisticated Crack Detection Model. The model is based on a modified U-Net architecture, enhanced with dropout and batch normalization. It's designed for efficient and accurate detection and classification of cracks in surfaces or materials.
 
 ## Features
 - Dual-Output Architecture: Provides both pixel-wise segmentation and image-level classification.
@@ -81,7 +81,7 @@ dataset/
 This project is licensed under the MIT License - see the LICENSE file for details.
 
 ## Acknowledgements
-This project was developed by Seongha at Loughborough University. Special thanks to the faculty and research staff for their support and guidance.
+This project was developed by [Seongha Hwang](https://www.linkedin.com/in/seongha-hwang-a478a068/) at Loughborough University. Special thanks to the faculty and research staff for their support and guidance.
 
 
 
