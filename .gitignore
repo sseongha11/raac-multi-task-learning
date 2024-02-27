@@ -414,6 +414,8 @@ pytorch-segmentation-models/dataset/*
 pytorch-segmentation-models/output/*
 dataset/*
 output/*
-
+runs/*
+segmentation-models/dataset/*
+segmentation-models/output/*
 
 # End of https://www.toptal.com/developers/gitignore/api/linux,windows,macos,jetbrains+all,pycharm+all,python,visualstudiocode

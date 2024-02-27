@@ -25,7 +25,7 @@ class CrackDataset(Dataset):
         mask_path = os.path.join(self.mask_dir, img_name)
 
         image = Image.open(img_path).convert("RGB")
-        mask = Image.open(mask_path).convert("L")
+        mask = Image.open(mask_path).convert("L")  # assuming mask is grayscale
 
         label = self.labels.iloc[idx].label
         # Convert label to one-hot encoding
@@ -36,21 +36,3 @@ class CrackDataset(Dataset):
             mask = self.transform(mask)
 
         return image, mask, one_hot_label.float()
-
-
-# Example Usage
-image_dir = 'dataset/images'
-mask_dir = 'dataset/masks'
-labels_file = 'dataset/labels.csv'
-
-transform = transforms.Compose([
-    transforms.Resize((448, 448)),
-    transforms.ToTensor(),
-    transforms.Normalize(mean=[0.5], std=[0.5]),
-    transforms.RandomHorizontalFlip(),
-    transforms.RandomVerticalFlip(),
-])
-
-num_classes = 3  # Update this based on your number of classes
-dataset = CrackDataset(image_dir, mask_dir, labels_file, num_classes, transform=transform)
-dataloader = DataLoader(dataset, batch_size=4, shuffle=True)

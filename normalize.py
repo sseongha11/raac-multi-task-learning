@@ -12,7 +12,7 @@ class CustomImageDataset(Dataset):
         """
         Args:
             csv_file (string): Path to the csv file with annotations.
-            img_dir (string): Directory with all the images.
+            img_dir (string): Directory with all the train.
             transform (callable, optional): Optional transform to be applied on a sample.
         """
         self.img_labels = pd.read_csv(csv_file)
@@ -48,7 +48,7 @@ count = 0
 
 # Iterate over the dataset
 for data, _ in tqdm(loader):
-    # data is a batch of images with shape [B, C, H, W]
+    # data is a batch of train with shape [B, C, H, W]
     sum_rgb += data.sum(dim=[0, 2, 3])  # sum over batch, height, and width dimensions
     sum_squares_rgb += (data ** 2).sum(dim=[0, 2, 3])  # sum of squares
     count += data.numel() / data.size(1)  # count pixels
