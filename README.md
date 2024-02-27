@@ -60,23 +60,24 @@ This will output the segmentation and classification results.
 ```bash
 dataset/
 │
-├── images/          # Directory with all images
-│   ├── image1.jpg
-│   ├── image2.jpg
+├── train/          # Directory with all train
+│   ├── image1.png
+│   ├── image2.png
 │   └── ...
 │
-├── masks/           # Directory with corresponding masks
+├── train_labels/           # Directory with corresponding train_labels
 │   ├── image1.png   # Mask filename matches image filename
 │   ├── image2.png
 │   └── ...
 │
 └── labels.csv       # CSV file with classification labels
     ├── filename, label
-    ├── image1.jpg, 0  # 0 could represent 'simple'
-    ├── image2.jpg, 1  # 1 for 'mixed'
-    ├── image3.jpg, 2  # 2 for 'mixed'  
+    ├── image1.png, 0  # 0 could represent 'Non-Crack'
+    ├── image2.png, 1  # 1 for 'Longitudinal-or-Transverse-Crack'
+    ├── image3.png, 2  # 2 for 'Mixed-Crack'  
     └── ...
 ```
+
 ## License
 This project is licensed under the MIT License - see the LICENSE file for details.
 

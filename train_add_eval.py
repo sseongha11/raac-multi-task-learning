@@ -1,5 +1,6 @@
 import argparse
 import logging
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -7,6 +8,8 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from sklearn.metrics import recall_score, precision_score, accuracy_score
+from scipy.spatial.distance import directed_hausdorff
 
 from raac.dataset import CrackDataset
 from raac.model import CrackDetectionModel
@@ -23,7 +26,6 @@ class CombinedLoss(nn.Module):
     def forward(self, input, target):
         bce = self.bce_loss(input, target)
         dice = self.dice_loss(torch.sigmoid(input), target)
-        # Ensure total loss is non-negative
         total_loss = bce + max(dice, 0)
         return total_loss
 
@@ -33,12 +35,33 @@ class DiceLoss(nn.Module):
         super(DiceLoss, self).__init__()
 
     def forward(self, input, target):
-        smooth = 1.0  # Prevent division by zero
+        smooth = 1.0
         input_flat = input.view(-1)
         target_flat = target.view(-1)
         intersection = (input_flat * target_flat).sum()
         dice_score = (2. * intersection + smooth) / (input_flat.sum() + target_flat.sum() + smooth)
         return 1 - dice_score
+
+
+def dice_coefficient(y_true, y_pred, smooth=1e-6):
+    y_true_f = y_true.contiguous().view(-1)
+    y_pred_f = y_pred.contiguous().view(-1)
+    intersection = (y_true_f * y_pred_f).sum()
+    return (2. * intersection + smooth) / (y_true_f.sum() + y_pred_f.sum() + smooth)
+
+
+def jaccard_index(y_true, y_pred):
+    intersection = np.logical_and(y_true, y_pred).sum()
+    union = np.logical_or(y_true, y_pred).sum()
+    return intersection / union
+
+
+def hausdorff_distance_95th(y_true, y_pred):
+    pts_true = np.argwhere(y_true)
+    pts_pred = np.argwhere(y_pred)
+    if not pts_true.any() or not pts_pred.any():
+        return np.nan
+    return np.percentile([directed_hausdorff(pts_true, pts_pred)[0], directed_hausdorff(pts_pred, pts_true)[0]], 95)
 
 
 def train_one_epoch(model, dataloader, optimizer, criterion_seg, criterion_cls, device):
@@ -47,9 +70,15 @@ def train_one_epoch(model, dataloader, optimizer, criterion_seg, criterion_cls, 
     for images, masks, labels in tqdm(dataloader):
         images, masks, labels = images.to(device), masks.to(device), labels.to(device)
         optimizer.zero_grad()
+
         seg_output, cls_output = model(images)
-        masks = masks.squeeze(1)
-        seg_output = seg_output.squeeze(1)
+
+        # Ensure masks match the dimensionality of seg_output
+        masks = masks.squeeze(1)  # Remove channel dimension if it's 1
+
+        seg_output = seg_output.squeeze(
+            1) if seg_output.dim() > 3 else seg_output  # Conditional squeeze based on your model's output
+
         loss_seg = criterion_seg(seg_output, masks)  # Use combined loss for segmentation
         loss_cls = criterion_cls(cls_output, labels)  # Use BCE or another appropriate loss for classification
         loss = loss_seg + loss_cls  # Combine losses if doing both tasks
@@ -62,18 +91,52 @@ def train_one_epoch(model, dataloader, optimizer, criterion_seg, criterion_cls, 
 def validate_one_epoch(model, dataloader, criterion_seg, criterion_cls, device):
     model.eval()
     running_loss = 0.0
+    total_jaccard = 0.0  # Ensure this is initialized outside and before the loop
+    hausdorff_distances = []
+    total_recall = total_precision = total_accuracy = 0.0
+    n_batches = 0
+
     with torch.no_grad():
         for images, masks, labels in dataloader:
             images, masks, labels = images.to(device), masks.to(device), labels.to(device)
             seg_output, cls_output = model(images)
-            masks = masks.squeeze(1)
-            seg_output = seg_output.squeeze(1)
-            loss_seg = criterion_seg(seg_output, masks)  # Use combined loss for segmentation
-            loss_cls = criterion_cls(cls_output, labels)  # Use BCE or another appropriate loss for classification
-            loss = loss_seg + loss_cls  # Combine losses if doing both tasks
 
+            # Ensure masks match the dimensionality of seg_output
+            masks = masks.squeeze(1)  # Remove channel dimension
+
+            seg_output = seg_output.squeeze(
+                1) if seg_output.dim() > 3 else seg_output  # Conditional squeeze based on your model's output
+
+            loss_seg = criterion_seg(seg_output, masks)
+            loss_cls = criterion_cls(cls_output, labels)
+            loss = loss_seg + loss_cls
             running_loss += loss.item()
-    return running_loss / len(dataloader)
+
+            seg_output_sigmoid = torch.sigmoid(seg_output).squeeze(1) > 0.5
+            cls_output_sigmoid = torch.sigmoid(cls_output) > 0.5
+
+            for mask, prediction in zip(masks.squeeze(1).cpu().numpy(), seg_output_sigmoid.cpu().numpy()):
+                total_jaccard += jaccard_index(mask, prediction)
+                hausdorff_distances.append(hausdorff_distance_95th(mask, prediction))
+
+            labels_np = labels.cpu().numpy()
+            predictions_np = cls_output_sigmoid.cpu().numpy()
+            total_recall += recall_score(labels_np, predictions_np, average='macro', zero_division=0)
+            total_precision += precision_score(labels_np, predictions_np, average='macro', zero_division=0)
+            total_accuracy += accuracy_score(labels_np, predictions_np)
+
+            n_batches += 1
+
+    avg_loss = running_loss / n_batches
+    avg_jaccard = total_jaccard / n_batches
+    avg_hd95 = np.nanmean(hausdorff_distances)
+    avg_recall = total_recall / n_batches
+    avg_precision = total_precision / n_batches
+    avg_accuracy = total_accuracy / n_batches
+
+    logging.info(
+        f"Validation - Loss: {avg_loss:.4f}, Jaccard: {avg_jaccard:.4f}, HD95: {avg_hd95:.4f}, Recall: {avg_recall:.4f}, Precision: {avg_precision:.4f}, Accuracy: {avg_accuracy:.4f}")
+    return avg_loss, avg_jaccard, avg_hd95, avg_recall, avg_precision, avg_accuracy
 
 
 def setup_logging():
@@ -144,14 +207,19 @@ def main():
         logging.info(f"Epoch {epoch + 1}/{args.epochs}, Train Loss: {train_loss:.4f}")
 
         # Validate after each epoch
-        val_loss = validate_one_epoch(model, val_loader, criterion_seg, criterion_cls, device)
-        val_losses.append(val_loss)
-        logging.info(f"Epoch {epoch + 1}/{args.epochs}, Validation Loss: {val_loss:.4f}")
+        avg_loss, avg_jaccard, avg_hd95, avg_recall, avg_precision, avg_accuracy = validate_one_epoch(model, val_loader,
+                                                                                                      criterion_seg,
+                                                                                                      criterion_cls,
+                                                                                                      device)
+        val_losses.append(avg_loss)
+        # Then, log each metric individually or format the message to include all relevant metrics
+        logging.info(
+            f"Epoch {epoch + 1}/{args.epochs}, Validation Loss: {avg_loss:.4f}, Jaccard: {avg_jaccard:.4f}, HD95: {avg_hd95:.4f}, Recall: {avg_recall:.4f}, Precision: {avg_precision:.4f}, Accuracy: {avg_accuracy:.4f}")
 
         scheduler.step()
 
-        if val_loss < best_loss:
-            best_loss = val_loss
+        if avg_loss < best_loss:
+            best_loss = avg_loss
             torch.save(model.state_dict(), args.save_path)
             logging.info(f"Model saved at {args.save_path}")
 
